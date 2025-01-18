@@ -6,23 +6,19 @@ const path = require('path');
 const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
 const archiver = require('archiver');
-
 const app = express();
 const upload = multer({ dest: './uploads' });
-
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-
 app.get('/', (req, res) => {
     res.render('index');
 });
 
-// Функция для чтения CSV файла
 function readCsvFile(filePath) {
     return new Promise((resolve, reject) => {
         const rows = [];
         fs.createReadStream(filePath, { encoding: 'utf8' })
-            .pipe(csv({ separator: ';' })) // Указываем разделитель
+            .pipe(csv({ separator: ';' })) 
             .on('data', (data) => {
                 rows.push(data);
             })
@@ -39,16 +35,15 @@ function matchOperations(requests, registry) {
     const unmatched = [];
 
     requests.forEach(request => {
-        const tranId = (request['TRANID'] || '').trim(); // Убираем пробелы
+        const tranId = (request['TRANID'] || '').trim(); 
         const match = registry.find(row => {
-            const tslId = (row['TSL_ID'] || '').trim(); // Убираем пробелы
-            const regTranId = (row['TRANID'] || '').trim(); // Убираем пробелы
+            const tslId = (row['TSL_ID'] || '').trim(); 
+            const regTranId = (row['TRANID'] || '').trim(); 
 
-            return tranId === tslId || tranId === regTranId; // Сравниваем по TRANID
+            return tranId === tslId || tranId === regTranId;
         });
 
         if (match) {
-            // Проверяем, чтобы одно совпадение для TRANID не повторялось
             const isAlreadyMatched = matched.some(item => item.TSL_ID === match['TSL_ID']);
             if (!isAlreadyMatched) {
                 matched.push({
@@ -60,10 +55,6 @@ function matchOperations(requests, registry) {
                     company: Object.keys(request).find(key => /Юридична\s+назва\s+ЄДРПОУ/i.test(key))
                         ? request[Object.keys(request).find(key => /Юридична\s+назва\s+ЄДРПОУ/i.test(key))]
                         : 'Default value',
-
-
-
-
                     sender_list: request['Номер вихідного листа'],
                     document: request['Додаткова інформація'],
                     additional: request['Додаткова інформація'],
@@ -71,17 +62,12 @@ function matchOperations(requests, registry) {
                     name: request['ПІБ клієнта']
                 });
             }
+
         } else {
             unmatched.push(request);
         }
     });
-
     return { matched, unmatched };
-}
-
-const sanitizeFileName = (name) => {
-    // Заменяем пробелы и специальные символы на подчеркивания или убираем их
-    return name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 100); // Ограничиваем длину до 100 символов
 }
 
 function generateDocument(matchedData) {
@@ -93,36 +79,30 @@ function generateDocument(matchedData) {
 
         const templateBuffer = fs.readFileSync(templatePath);
         try {
-            const zip = new PizZip(templateBuffer);
             const generatedFiles = [];
-            const processedTSLIds = new Set(); // Множество для отслеживания уникальных TSL_ID
+            const processedTSLIds = new Set(); 
 
             matchedData.forEach((data) => {
-                // Пропускаем данные с отсутствующими или пустыми значениями
                 if (!Object.values(data).some(value => value) || !data['Сума зарахування'] || !data['TSL_ID']) {
                     console.log(`Пропуск пустого документа для TRANID: ${data.TSL_ID || 'неизвестно'}`);
                     return;
                 }
 
-                // Проверяем уникальность TSL_ID
                 if (processedTSLIds.has(data.TSL_ID)) {
                     console.log(`Документ для TSL_ID ${data.TSL_ID} уже был сгенерирован. Пропуск.`);
                     return;
                 }
-                processedTSLIds.add(data.TSL_ID); // Добавляем TSL_ID в множество
+                processedTSLIds.add(data.TSL_ID); 
 
-                // Используем поле "ПІБ клієнта" как имя файла
-                const clientName = data['ПІБ клієнта'] || 'default_name'; // Если "ПІБ клієнта" отсутствует, используем значение по умолчанию
-                if (!clientName.trim()) {
-                    console.log('Ошибка: ПІБ клієнта пустое или отсутствует');
-                    return;
-                }
-                const sanitizedClientName = sanitizeFileName(clientName); // Очистка имени
+                const clientName = data.sender || 'default_name'; 
 
-                const fileName = `${sanitizedClientName}.docx`; // Уникальное имя файла, основанное на "ПІБ клієнта"
-                const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+                const fileName = `${clientName}.docx`;
 
                 try {
+
+                    const zip = new PizZip(templateBuffer);
+                    const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+
                     console.log("Данные для вставки в документ:", data);
 
                     doc.render({
@@ -155,7 +135,8 @@ function generateDocument(matchedData) {
     });
 }
 
-// Маршрут для загрузки файлов
+
+
 app.post('/upload', upload.fields([
     { name: 'registryFiles', maxCount: 1 },
     { name: 'requestFile', maxCount: 1 }
