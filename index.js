@@ -30,6 +30,7 @@ function readCsvFile(filePath) {
     });
 }
 
+
 function matchOperations(requests, registry) {
     const matched = [];
     const unmatched = [];
@@ -45,8 +46,9 @@ function matchOperations(requests, registry) {
 
         if (match) {
             const isAlreadyMatched = matched.some(item => item.TSL_ID === match['TSL_ID']);
+
             if (!isAlreadyMatched) {
-                matched.push({
+                const processedData = {
                     'Дата операції': match['STL_DATE'] || match['Час операції'],
                     'Картка отримувача': match['PAN'],
                     'Сума зарахування': match['TRAN_AMOUNT'] || match['Сума'],
@@ -60,81 +62,25 @@ function matchOperations(requests, registry) {
                     additional: request['Додаткова інформація'],
                     sender: request['ПІБ клієнта'],
                     name: request['ПІБ клієнта']
-                });
-            }
+                };
 
+                if (
+                    processedData['Сума зарахування'] &&
+                    processedData.TSL_ID &&
+                    processedData.sender
+                ) {
+                    matched.push(processedData);
+                } else {
+                    console.log(`Пропуск некорректной записи: ${JSON.stringify(processedData)}`);
+                }
+            }
         } else {
             unmatched.push(request);
         }
     });
+
     return { matched, unmatched };
 }
-
-function generateDocument(matchedData) {
-    return new Promise((resolve, reject) => {
-        const templatePath = path.join(__dirname, 'template.docx');
-        if (!fs.existsSync(templatePath)) {
-            return reject(new Error('Шаблон документа не найден'));
-        }
-
-        const templateBuffer = fs.readFileSync(templatePath);
-        try {
-            const generatedFiles = [];
-            const processedTSLIds = new Set(); 
-
-            matchedData.forEach((data) => {
-                if (!Object.values(data).some(value => value) || !data['Сума зарахування'] || !data['TSL_ID']) {
-                    console.log(`Пропуск пустого документа для TRANID: ${data.TSL_ID || 'неизвестно'}`);
-                    return;
-                }
-
-                if (processedTSLIds.has(data.TSL_ID)) {
-                    console.log(`Документ для TSL_ID ${data.TSL_ID} уже был сгенерирован. Пропуск.`);
-                    return;
-                }
-                processedTSLIds.add(data.TSL_ID); 
-
-                const clientName = data.sender || 'default_name'; 
-
-                const fileName = `${clientName}.docx`;
-
-                try {
-
-                    const zip = new PizZip(templateBuffer);
-                    const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
-
-                    console.log("Данные для вставки в документ:", data);
-
-                    doc.render({
-                        "DataOperatsiyi": data['Дата операції'] || "Default value",
-                        "KartkaOtrymuvacha": data['Картка отримувача'] || "Default value",
-                        "SumaZarakhuvannya": data['Сума зарахування'] || "Default value",
-                        "TSL_ID": data['TSL_ID'] || "Default value",
-                        "KodAvtoryzatsiyi": data['Код авторизації'] || "Default value",
-                        "company": data.company || "Default value",
-                        "sender_list": data.sender_list || "Default value",
-                        "document": data.document || "Default value",
-                        "additional": data.additional || "Default value",
-                        "sender": data.sender || "Default value"
-                    });
-
-                    const buf = doc.getZip().generate({ type: 'nodebuffer' });
-                    generatedFiles.push({ fileName, buffer: buf });
-
-                    console.log(`Сгенерирован документ: ${fileName}`);
-
-                } catch (error) {
-                    console.error(`Ошибка генерации документа для TRANID: ${data.TSL_ID}`, error);
-                }
-            });
-
-            resolve(generatedFiles);
-        } catch (error) {
-            reject(error);
-        }
-    });
-}
-
 
 
 app.post('/upload', upload.fields([
@@ -158,7 +104,51 @@ app.post('/upload', upload.fields([
             return res.status(404).json({ message: 'Совпадений не найдено' });
         }
 
-        const generatedFiles = await generateDocument(matched);
+        let templatePath;
+        if (req.query.type === 'c2a') {
+            templatePath = path.join(__dirname, 'template_c2a.docx');
+        } else if (req.query.type === 'a2c') {
+            templatePath = path.join(__dirname, 'template_a2c.docx');
+        } else {
+            throw new Error('Неверный тип запроса. Поддерживаются только c2a и a2c');
+        }
+
+        const generateDocumentWithTemplate = async (matchedData, templatePath) => {
+            const templateBuffer = fs.readFileSync(templatePath);
+
+            const generatedFiles = [];
+            const processedTSLIds = new Set();
+
+            matchedData.forEach((data) => {
+                if (!data['Сума зарахування'] || processedTSLIds.has(data.TSL_ID)) return;
+
+                processedTSLIds.add(data.TSL_ID);
+                const zip = new PizZip(templateBuffer);
+                const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+
+                doc.render({
+                    "DataOperatsiyi": data['Дата операції'] || "Default value",
+                    "KartkaOtrymuvacha": data['Картка отримувача'] || "Default value",
+                    "SumaZarakhuvannya": data['Сума зарахування'] || "Default value",
+                    "TSL_ID": data['TSL_ID'] || "Default value",
+                    "KodAvtoryzatsiyi": data['Код авторизації'] || "Default value",
+                    "company": data.company || "Default value",
+                    "sender_list": data.sender_list || "Default value",
+                    "document": data.document || "Default value",
+                    "additional": data.additional || "Default value",
+                    "sender": data.sender || "Default value"
+                });
+
+                const buffer = doc.getZip().generate({ type: 'nodebuffer' });
+                const fileName = `${data.sender || 'default_name'}.docx`;
+
+                generatedFiles.push({ fileName, buffer });
+            });
+
+            return generatedFiles;
+        };
+
+        const generatedFiles = await generateDocumentWithTemplate(matched, templatePath);
 
         const archive = archiver('zip', { zlib: { level: 9 } });
         res.setHeader('Content-Type', 'application/zip');
@@ -176,6 +166,8 @@ app.post('/upload', upload.fields([
         res.status(500).json({ error: error.message });
     }
 });
+
+
 
 const PORT = 3000;
 app.listen(PORT, () => {
