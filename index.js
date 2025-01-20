@@ -83,22 +83,39 @@ function matchOperations(requests, registry) {
 }
 
 
+
 app.post('/upload', upload.fields([
-    { name: 'registryFiles', maxCount: 1 },
-    { name: 'requestFile', maxCount: 1 }
+    { name: 'registryFiles', maxCount: 10 },  // Задаем лимит на 10 файлов
+    { name: 'requestFile', maxCount: 10 }     // Задаем лимит на 10 файлов
 ]), async (req, res) => {
     try {
         if (!req.files['registryFiles'] || !req.files['requestFile']) {
             throw new Error('Не все файлы были загружены');
         }
 
-        const registryFile = req.files['registryFiles'][0];
-        const requestFile = req.files['requestFile'][0];
+        // Извлекаем все файлы реестра и запросов партнера
+        const registryFiles = req.files['registryFiles'];
+        const requestFiles = req.files['requestFile'];
 
-        const registryData = await readCsvFile(registryFile.path);
-        const requestData = await readCsvFile(requestFile.path);
+        // Прочитаем все файлы по очереди
+        const registryDataPromises = registryFiles.map(file => readCsvFile(file.path));
+        const requestDataPromises = requestFiles.map(file => readCsvFile(file.path));
+        
+        const registryDataArray = await Promise.all(registryDataPromises);
+        const requestDataArray = await Promise.all(requestDataPromises);
 
-        const { matched, unmatched } = matchOperations(requestData, registryData);
+        // Теперь у нас есть все данные из файлов реестра и запросов
+        const matched = [];
+        const unmatched = [];
+
+        // Пройдем по всем парам данных реестра и запроса
+        registryDataArray.forEach(registryData => {
+            requestDataArray.forEach(requestData => {
+                const matchResult = matchOperations(requestData, registryData);
+                matched.push(...matchResult.matched);
+                unmatched.push(...matchResult.unmatched);
+            });
+        });
 
         if (matched.length === 0) {
             return res.status(404).json({ message: 'Совпадений не найдено' });
