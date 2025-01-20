@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Загрузка файлов</title>
     <style>
+        *{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        p{
+            margin: 0;
+            padding: 0;
+        }
         body {
             font-family: 'Arial', sans-serif;
             background-color: #f4f7fc;
@@ -73,20 +82,48 @@
         button:active {
             background-color: #1c5b87;
         }
+        .box_info{
+            padding: 40px;
+        }
+        .box_btn{
+            display: flex;
+        }
+        .box_btn :nth-child(1){
+            margin-right: 10%;
+        }
     </style>
 </head>
 <body>
-    <h1>Загрузите файлы для обработки</h1>
-    <form action="/upload" method="POST" enctype="multipart/form-data">
+    <div class="box_info">
+        <p>Загрузите файлы для обработки</p>
+        <div class="info">
+            Всі файли виключно формату csv
+            Файли реєстру виключно з таблицею без доп описів
+        </div>
+    </div>
+    <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
         <div>
-            <label for="registry">Реестр:</label>
-            <input type="file" name="registryFiles" accept=".xlsx,.xls, .csv" required>
+            <label for="registry">Выберите реестр:</label>
+            <input type="file" name="registryFiles" accept=".xlsx,.xls, .csv" multiple required>
         </div>
         <div>
-            <label for="partnerQuery">Запрос партнера:</label>
-            <input type="file" name="requestFile" accept=".xlsx,.xls, .csv" required>
+            <label for="partnerQuery">Выберите запрос партнера:</label>
+            <input type="file" name="requestFile" accept=".xlsx,.xls, .csv" multiple required>
         </div>
-        <button type="submit">Загрузить</button>
+        <div class="box_btn">
+            <button type="button" onclick="submitForm('c2a')">Загрузить c2a</button>
+            <button type="button" onclick="submitForm('a2c')">Загрузить a2c</button>
+        </div>
     </form>
+    
+    <script>
+        function submitForm(type) {
+            const form = document.getElementById('uploadForm');
+            const queryParams = new URLSearchParams({ type });
+            form.action = `/upload?${queryParams.toString()}`;
+            form.submit();
+        }
+    </script>
+    
 </body>
 </html>
