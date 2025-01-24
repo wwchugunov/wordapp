@@ -1,19 +1,22 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Загрузка файлов</title>
     <style>
-        *{
+        * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        p{
+
+        p {
             margin: 0;
             padding: 0;
         }
+
         body {
             font-family: 'Arial', sans-serif;
             background-color: #f4f7fc;
@@ -82,17 +85,21 @@
         button:active {
             background-color: #1c5b87;
         }
-        .box_info{
+
+        .box_info {
             padding: 40px;
         }
-        .box_btn{
+
+        .box_btn {
             display: flex;
         }
-        .box_btn :nth-child(1){
+
+        .box_btn :nth-child(1) {
             margin-right: 10%;
         }
     </style>
 </head>
+
 <body>
     <div class="box_info">
         <p>Загрузите файлы для обработки</p>
@@ -115,15 +122,105 @@
             <button type="button" onclick="submitForm('a2c')">Загрузить a2c</button>
         </div>
     </form>
-    
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
-        function submitForm(type) {
-            const form = document.getElementById('uploadForm');
-            const queryParams = new URLSearchParams({ type });
-            form.action = `/upload?${queryParams.toString()}`;
-            form.submit();
-        }
+
+
+        function showReport(data, type) {
+    const unmatchedList = data.unmatched.map(item => `<li>${item.name} - ${item.status}</li>`).join('');
+
+    Swal.fire({
+        icon: 'info',
+        title: 'Отчёт обработки',
+        html: `
+            <h4>Не найдено:</h4>
+            <ul>${unmatchedList}</ul>
+            <h4>${data.summary}</h4>
+        `,
+        confirmButtonText: 'Скачать файлы',
+    }).then(() => {
+        downloadFiles(type);
+    });
+}
+
+function downloadFiles(type) {
+    const form = document.getElementById('uploadForm');
+    const formData = new FormData(form);
+    const queryParams = new URLSearchParams({ type });
+
+    // Показать окно загрузки
+    Swal.fire({
+        title: 'Загрузка...',
+        text: 'Файлы формируются, пожалуйста, подождите.',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        },
+    });
+
+    fetch(`/upload?${queryParams.toString()}`, {
+        method: 'POST',
+        body: formData,
+    })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Ошибка при скачивании файла');
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'documents.zip'; // Укажите имя файла
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            // Закрыть окно загрузки
+            Swal.close();
+        })
+        .catch(err => {
+            Swal.fire({
+                icon: 'error',
+                title: 'Ошибка',
+                text: `Не удалось скачать файл: ${err.message}`,
+            });
+        });
+}
+
+function submitForm(type) {
+    const form = document.getElementById('uploadForm');
+    const formData = new FormData(form);
+    const queryParams = new URLSearchParams({ type, report: 'true' });
+
+    fetch(`/upload?${queryParams.toString()}`, {
+        method: 'POST',
+        body: formData,
+    })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(errData => {
+                    throw new Error(errData.error || 'Ошибка обработки');
+                });
+            }
+            return response.json();
+        })
+        .then(data => showReport(data, type))
+        .catch(err => {
+            Swal.fire({
+                icon: 'error',
+                title: 'Ошибка',
+                text: `Произошла ошибка: ${err.message}`,
+            });
+        });
+}
+
     </script>
     
+
 </body>
+
 </html>
