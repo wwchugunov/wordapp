@@ -31,6 +31,7 @@ function readCsvFile(filePath) {
 }
 
 
+
 function matchOperations(requests, registry) {
     const matched = [];
     const unmatched = [];
@@ -48,32 +49,37 @@ function matchOperations(requests, registry) {
             const isAlreadyMatched = matched.some(item => item.TSL_ID === match['TSL_ID']);
 
             if (!isAlreadyMatched) {
+                const fullCompanyName = Object.keys(request).find(key => /Юридична\s+назва\s+ЄДРПОУ/i.test(key))
+                    ? request[Object.keys(request).find(key => /Юридична\s+назва\s+ЄДРПОУ/i.test(key))]
+                    : 'Default value';
+
                 const processedData = {
-                    'Дата операції': match['STL_DATE'] || match['Час операції'],
+                    'Дата операції': match['TRAN_DATE_TIME'] || match['Час операції'],
                     'Картка отримувача': match['PAN'],
                     'Сума зарахування': match['TRAN_AMOUNT'] || match['Сума'],
                     TSL_ID: match['TSL_ID'] || match['TRANID'],
                     'Код авторизації': match['APPROVAL'] || '',
-                    company: Object.keys(request).find(key => /Юридична\s+назва\s+ЄДРПОУ/i.test(key))
-                        ? request[Object.keys(request).find(key => /Юридична\s+назва\s+ЄДРПОУ/i.test(key))]
-                        : 'Default value',
+                    company: fullCompanyName, // Полное название компании
+                    companyShort: fullCompanyName.slice(0, -16).trim() , // Последние 8 символов названия компании
                     sender_list: request['Номер вихідного листа'],
                     document: request['Додаткова інформація'],
                     additional: request['Додаткова інформація'],
                     sender: request['ПІБ клієнта'],
-                    name: request['ПІБ клієнта']
+                    name: request['ПІБ клоієнта'],
+                    dogovir: request['Договір']
                 };
 
+                console.log(processedData)
                 if (
                     processedData['Сума зарахування'] &&
-                    processedData.TSL_ID &&
                     processedData.sender
                 ) {
                     matched.push(processedData);
                 } else {
-                    console.log(`Пропуск некорректной записи: ${JSON.stringify(processedData)}`);
+                    console.log(processedData);
                 }
             }
+
         } else {
             unmatched.push(request);
         }
@@ -81,6 +87,7 @@ function matchOperations(requests, registry) {
 
     return { matched, unmatched };
 }
+
 
 
 
@@ -143,6 +150,21 @@ app.post('/upload', upload.fields([
                 const zip = new PizZip(templateBuffer);
                 const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
 
+                // doc.render({
+                //     "DataOperatsiyi": data['Дата операції'] || "Default value",
+                //     "KartkaOtrymuvacha": data['Картка отримувача'] || "Default value",
+                //     "SumaZarakhuvannya": data['Сума зарахування'] || "Default value",
+                //     "TSL_ID": data['TSL_ID'] || "Default value",
+                //     "KodAvtoryzatsiyi": data['Код авторизації'] || "Default value",
+                //     "company": data.company || "Default value",
+                //     "sender_list": data.sender_list || "Default value",
+                //     "document": data.document || "Default value",
+                //     "additional": data.additional || "Default value",
+                //     "sender": data.sender || "Default value",
+                //     "companyShort": data.companyShort || "Default value",
+                //     "dogovir": data.dogovir || "Default value",
+                // });
+
                 doc.render({
                     "DataOperatsiyi": data['Дата операції'] || "Default value",
                     "KartkaOtrymuvacha": data['Картка отримувача'] || "Default value",
@@ -153,8 +175,18 @@ app.post('/upload', upload.fields([
                     "sender_list": data.sender_list || "Default value",
                     "document": data.document || "Default value",
                     "additional": data.additional || "Default value",
-                    "sender": data.sender || "Default value"
+                    "sender": data.sender || "Default value",
+                    "companyShort": data.companyShort || "Default value", // Здесь передаётся обрезанное название
+                    "dogovir": data.dogovir || "Default value",
                 });
+
+                console.log({
+                    company: data.company,
+                    companyShort: data.companyShort,
+                    dogovir: data.dogovir,
+                });
+                
+                
 
                 const buffer = doc.getZip().generate({ type: 'nodebuffer' });
                 const fileName = `${data.sender || 'default_name'}.docx`;
