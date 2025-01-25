@@ -4,21 +4,29 @@ const fs = require('fs');
 const csv = require('csv-parser');
 const path = require('path');
 const PizZip = require('pizzip');
+const iconv = require('iconv-lite');
 const Docxtemplater = require('docxtemplater');
 const archiver = require('archiver');
 const app = express();
 const upload = multer({ dest: './uploads' });
+app.use(express.static(path.join(__dirname, 'public')));
+
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-app.get('/', (req, res) => {
+app.get('/processing/', (req, res) => {
     res.render('index');
 });
 
 function readCsvFile(filePath) {
     return new Promise((resolve, reject) => {
         const rows = [];
-        fs.createReadStream(filePath, { encoding: 'utf8' })
-            .pipe(csv({ separator: ';' })) 
+        // Чтение файла с конвертацией из кодировки Windows-1251 в UTF-8
+        const readStream = fs.createReadStream(filePath)
+            .pipe(iconv.decodeStream('win1251'))  // Декодируем поток из Windows-1251
+            .pipe(iconv.encodeStream('utf8'));   // Перекодируем в UTF-8
+
+        readStream
+            .pipe(csv({ separator: ';' })) // Разделитель для CSV
             .on('data', (data) => {
                 rows.push(data);
             })
@@ -53,14 +61,32 @@ function matchOperations(requests, registry) {
                     ? request[Object.keys(request).find(key => /Юридична\s+назва\s+ЄДРПОУ/i.test(key))]
                     : 'Default value';
 
+                // const processedData = {
+                //     'Дата операції': match['TRAN_DATE_TIME'] || match['Час та датаоперації'],
+                //     'Картка отримувача': match['PAN'] || match['Номер картки'],
+                //     'Сума зарахування': match['TRAN_AMOUNT'] || match['Сумаоперації,грн.'],
+                //     // TSL_ID: match['TSL_ID'] || match['TRANID'] || match['Уникальныйномертранзакции в ПЦ'],
+                //     TSL_ID: match['TSL_ID'] || match['Уникальныйномертранзакции в ПЦ'] || match['TRANID'],
+
+                //     'Код авторизації': match['APPROVAL'] || match['Кодавторизації'],
+                //     company: fullCompanyName, 
+                //     companyShort: fullCompanyName.slice(0, -16).trim() ,
+                //     sender_list: request['Номер вихідного листа'],
+                //     document: request['Додаткова інформація'],
+                //     additional: request['Додаткова інформація'],
+                //     sender: request['ПІБ клієнта'],
+                //     name: request['ПІБ клоієнта'],
+                //     dogovir: request['Договір']
+                // };
+
                 const processedData = {
-                    'Дата операції': match['TRAN_DATE_TIME'] || match['Час операції'],
-                    'Картка отримувача': match['PAN'],
-                    'Сума зарахування': match['TRAN_AMOUNT'] || match['Сума'],
-                    TSL_ID: match['TSL_ID'] || match['TRANID'],
-                    'Код авторизації': match['APPROVAL'] || '',
+                    'Дата операції': match['TRAN_DATE_TIME'] || match['Час та датаоперації'],
+                    'Картка отримувача': match['PAN'] || match['Номер картки'],
+                    'Сума зарахування': match['TRAN_AMOUNT'] || match['Сумаоперації,грн.'],
+                    TSL_ID: match['TSL_ID'] || match['Уникальныйномертранзакции в ПЦ'] || match['TRANID'],
+                    'Код авторизації': match['APPROVAL'] || match['Кодавторизації'],
                     company: fullCompanyName, 
-                    companyShort: fullCompanyName.slice(0, -16).trim() ,
+                    companyShort: fullCompanyName.slice(0, -16).trim(),
                     sender_list: request['Номер вихідного листа'],
                     document: request['Додаткова інформація'],
                     additional: request['Додаткова інформація'],
@@ -68,6 +94,7 @@ function matchOperations(requests, registry) {
                     name: request['ПІБ клоієнта'],
                     dogovir: request['Договір']
                 };
+                
 
                 console.log(processedData)
                 if (
@@ -125,21 +152,25 @@ app.post('/upload', upload.fields([
             });
         });
 
-        // Возвращаем JSON-отчёт, если указан параметр report=true
+
         if (req.query.report === 'true') {
             const report = {
                 matched: matched.map(item => ({
                     name: item.sender || "Не указано",
                     status: "Найдено"
                 })),
-                unmatched: unmatched.map(item => ({
-                    name: item['ПІБ клієнта'] || "Не указано",
-                    status: "Не найдено"
-                })),
-                summary: `Обработано ${matched.length} из ${matched.length + unmatched.length} операций`
-            };  
+                unmatched: unmatched
+                    .filter(item => item['ПІБ клієнта'] && item['ПІБ клієнта'] !== "") 
+                    .map(item => ({
+                        name: item['ПІБ клієнта'],
+                        status: "Не найдено"
+                    }))
+            };
+        
             return res.status(200).json(report);
         }
+        
+        
 
 
 
@@ -159,7 +190,6 @@ app.post('/upload', upload.fields([
             return res.status(400).json({ error: 'Неверный тип запроса. Поддерживаются только c2a и a2c' });
         }
 
-        // Генерация документов на основе шаблона
         const generateDocumentWithTemplate = async (matchedData, templatePath) => {
             const templateBuffer = fs.readFileSync(templatePath);
 
@@ -218,7 +248,7 @@ app.post('/upload', upload.fields([
 
 
 
-const PORT = 3090;
+const PORT = 1515;
 app.listen(PORT, () => {
     console.log(`Сервер запущен на порту ${PORT}`);
 });
